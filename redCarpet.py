@@ -3,9 +3,22 @@ from functools import reduce
 from itertools import chain
 import re
 from nltk.tokenize import RegexpTokenizer
+import os
+import datetime as dt
 
 # this tokenizer will be used to split words, omitting punctuation
 tk = RegexpTokenizer(r'\w+')
+
+
+def find_files():
+    files = os.listdir()
+    if 'members.json' in files:
+        if 'messages.json' in files:
+            return {'members': 'members.json', 'messages': 'messages.json', 'type': 'json'}
+        elif 'messages.db' in files:
+            return {'members': 'members.json', 'messages': 'messages.db', 'type': 'sql'}
+    else:
+        print("Error: No members/messages files found in this directory. Run getBatch.py to create them.")
 
 
 def flat_reducer(acc, nxt):
@@ -55,21 +68,22 @@ def most_links(df):
     (stats for non-image links)
     """.format(most, counts.get(most), m_rate, rates.get(m_rate)))
 
-
-def receive_emojis(df):
-
-    def get_react(name):
-        mess = chain(*list(filter(lambda x: len(x) > 0, list(df[(df['sender_full_name'] == name)]['reactions']))))
-        return {name: len(list(mess))}
-
-    each = list(map(get_react, names))
-    one_dict = reduce(flat_reducer, each)
-    most = max(one_dict, key=one_dict.get)
-    print("""
-    Can't Help But Smile
-    --------------------
-    Received most reactions on posts: {}, {}
-    """.format(most, one_dict.get(most)))
+# this award feels too much like a popularity contest
+# don't worry Julia, you'll still be RC Prom Queen in my heart
+# def receive_emojis(df):
+#
+#     def get_react(name):
+#         mess = chain(*list(filter(lambda x: len(x) > 0, list(df[(df['sender_full_name'] == name)]['reactions']))))
+#         return {name: len(list(mess))}
+#
+#     each = list(map(get_react, names))
+#     one_dict = reduce(flat_reducer, each)
+#     most = max(one_dict, key=one_dict.get)
+#     print("""
+#     Can't Help But Smile
+#     --------------------
+#     Received most reactions on posts: {}, {}
+#     """.format(most, one_dict.get(most)))
 
 
 def most_days(df):
@@ -118,7 +132,7 @@ def give_emojis(df):
     print("""
     Enthusiastic!
     -------------
-    Most reactions to batchmates' posts: {}, {}
+    Gave most reactions: {}, {}
     Their favorite emoji: {}
     """.format(most, totals.get(most), fav))
 
@@ -141,8 +155,6 @@ def short_long(df):
             if 0 < len(m2) < len_s:
                 len_s = len(m2)
                 shortest = m
-                if shortest == 0:
-                    shortest = 1
         return {name: {"len_l": len_l, "len_s": len_s, "long": longest, "short": shortest}}
 
     def even_smaller(d):
@@ -154,19 +166,20 @@ def short_long(df):
                 short_name = pair[0]
         return short_name
 
-    all = reduce(flat_reducer, map(get_messages, names))
-    alldf = pd.DataFrame(data=all.values(), columns=['len_l', 'len_s', 'long', 'short'], index=names)
+    alls = reduce(flat_reducer, map(get_messages, names))
+    alldf = pd.DataFrame(data=alls.values(), columns=['len_l', 'len_s', 'long', 'short'], index=names)
     m_long = max(alldf['len_l'])
     l_place = alldf[alldf['len_l'] == m_long]
-    global m_short
     m_short = min(alldf['len_s'])
     matches = alldf[alldf['len_s'] == m_short]
     if len(matches) > 1:
         toget = list(zip(matches.index, matches['short'].values))
         s_place = alldf.loc[even_smaller(toget)]
+        print(["tie broken: ", s_place])
     else:
-        name = alldf[alldf['len_s'] == m_short].index
-        s_place = alldf.loc[name]
+        s_place = alldf[alldf['len_s'] == m_short]
+        print(s_place)
+
     print("""
     Best-Selling Novelist
     ---------------------
@@ -178,7 +191,7 @@ def short_long(df):
     Shortest single post by words: {}, {}, \"{}\"
     (1-word ties broken by n chars)
     """.format(m_long, l_place.index[0], l_place['long'].values[0][:175],
-               m_short, s_place.name, s_place['short']))
+               m_short, s_place.Name, s_place['short']))
 
 
 def long_messages(df):
@@ -224,9 +237,12 @@ def most_messages(df):
 
     def one_day(name):
         times = df[(df['sender_full_name'] == name)]['timestamp'].dt.strftime('%Y/%m/%d')
-        all = reduce(count_reducer, times, {})
-        m_day = max(all, key=all.get)
-        return {name: [all.get(m_day), m_day]}
+        if len(times) == 0:
+            return {name: [0, None]}
+        else:
+            totals = reduce(count_reducer, times, {})
+            m_day = max(totals, key=totals.get)
+            return {name: [totals.get(m_day), m_day]}
 
     res = reduce(count_reducer, list(df['sender_full_name']), {})
     most = max(res, key=res.get)
@@ -252,7 +268,10 @@ def most_pictures(df):
     def rate_post(name):
         imgs = len(img[(img['sender_full_name'] == name)])
         all = len(df[(df['sender_full_name'] == name)])
-        return {name: (imgs/all)*100}
+        if all > 0:
+            return {name: (imgs/all)*100}
+        else:
+            return {name: 0}
 
     img = df[df['content'].str.contains('img src')]
     all_pics = reduce(flat_reducer, map(per_post, names))
@@ -268,12 +287,13 @@ def most_pictures(df):
 
 
 def most_streams(df):
-    help_str = df[(df['display_recipient']=='help')]['stream_id'].iloc[0]
-    pair_str = df[(df['display_recipient']=='pairing')]['stream_id'].iloc[0]
+    help_str = df[(df['display_recipient'] == 'help')]['stream_id'].iloc[0]
+    pair_str = df[(df['display_recipient'] == 'pairing')]['stream_id'].iloc[0]
 
     def help_me(name):
         help_post = len(df[(df['sender_full_name'] == name) & (df['stream_id'] == help_str)])
         return {name: help_post}
+
     def be_my_buddy(name):
         pair_post = len(df[(df['sender_full_name'] == name) & (df['stream_id'] == pair_str)])
         return {name: pair_post}
@@ -295,7 +315,7 @@ def most_streams(df):
     MAYDAY! MAYDAY!
     ---------------
     Most messages in 'help' stream:
-    {}, {}
+    {}, {}    
     
     Buddy System
     ------------
@@ -311,11 +331,15 @@ def most_tags(df):
         return {name: sum(tags)}
 
     def get_taggee(name):
-        posts = df[df['content'].str.contains("".join(["@", name[:9]]))]
+        name_only = " ".join([tk.tokenize(name)[0], tk.tokenize(name)[1]])
+        tag = "".join(["@", name_only])
+        posts = df[(df['content'].str.contains(tag))]
         return {name: len(posts)}
 
     def get_unique_taggee(name):
-        ppl = df[df['content'].str.contains("".join(["@", name[:9]]))]['sender_full_name'].unique()
+        name_only = " ".join([tk.tokenize(name)[0], tk.tokenize(name)[1]])
+        tag = "".join(["@", name_only])
+        ppl = df[df['content'].str.contains(tag)]['sender_full_name'].unique()
         return {name: len(ppl)}
     taggers = reduce(flat_reducer, map(get_tagger, names))
     m_tagger = max(taggers, key=taggers.get)
@@ -327,41 +351,57 @@ def most_tags(df):
     Social Butterflies
     ------------------
     Tagged others most: {}, {} tags
-    Tagged most by batchmates: {}, {} tags
-    Tagged by most unique batchmates: {}, {} people
+    Tagged most by number: {}, {} tags
+    Tagged by most by unique people: {}, {} people
     """.format(m_tagger, taggers.get(m_tagger), m_taggee,
                taggees.get(m_taggee), m_tag_unique, tag_unique.get(m_tag_unique)))
 
-# call this if you have extra variables from zulip
+
 def clean_data(df):
-    # duplicated posts is a huge issue with Zulip's return! remove them!
+    # first few times I did this I screwed up Mongo and had thousands of duplicates
     df.drop(index=df[df.id.duplicated()].index, inplace=True)
     # drop these extra variables that we don't need
     drop_col = []
-    extras = ['_id', 'recipient_id', 'client', 'topic_links', 'is_me_message',
+    extras = ['_id', 'recipient_id', 'topic_links', 'is_me_message',
               'sender_realm_str', 'type', 'content_type', 'last_edit_timestamp']
     for col in extras:
         if col in df.columns:
             drop_col.append(col)
     df.drop(columns=drop_col, inplace=True)
-    # remove people who posted <= 5 messages
-    drop_absent = pd.array([])
-    sums = reduce(count_reducer, df.sender_id, {})
-    for id in sums:
-        if id <= 5:
-            drop_absent.append(id)
-    return df.drop(index=df[df['sender_id'] == drop_absent.any()].index)
+    # convert timestamps to dates if data came from SQL
+    if df.timestamp.dtype == 'int64':
+        df.timestamp = df.timestamp.apply(func=lambda x: dt.datetime.fromtimestamp(x))
+    # remove messages that are (deleted)
+    df.drop(index=df[df['content']=='<p>(deleted)</p>'].index, inplace=True)
+    # remove people from batch who never posted
+    drop_absent = []
+    global batch_only
+    batch_only = df[df['sender_id'].isin(batch_people['user_id'])]
+    sums = reduce(count_reducer, batch_only.sender_id, {})
+    for k, v in sums.items():
+        if v == 0:
+            drop_absent.append(k)
+    batch_only.drop(index=batch_only[batch_only['sender_id'].isin(drop_absent)].index, inplace=True)
+    return df.drop(index=df[df['sender_id'].isin(drop_absent)].index)
 
 
 if __name__ == "__main__":
-    zulip_df = pd.read_json("./messages.json")
+    fl = find_files()
+    batch_people = pd.read_json(fl.get('members'))
+    if fl.get('type') == 'json':
+        zulip_df = pd.read_json(fl.get('messages'))
+        zulip_df = zulip_df.drop(columns='_id')
+    elif fl.get('type') == 'sql':
+        import sqlite3 as s3
+        zulip_df = pd.read_sql_query("SELECT * FROM messages", s3.connect(fl.get('messages')))
+        zulip_df.rename(columns={'timestamp_': 'timestamp'})
+    batch_only = pd.DataFrame()
     zulip_df = clean_data(zulip_df)
-    zulip_df = zulip_df[(zulip_df['timestamp'] < '2021-02-13') & (zulip_df['timestamp'] > '2020-10-31')]
-    names = zulip_df['sender_full_name'].unique()
-    most_links(zulip_df)
-    most_pictures(zulip_df)
-    most_messages(zulip_df)
-    short_long(zulip_df)
-    most_days(zulip_df)
-    most_streams(zulip_df)
+    names = batch_only['sender_full_name'].unique()
+    most_links(batch_only)
+    most_pictures(batch_only)
+    most_messages(batch_only)
+    short_long(batch_only)
+    most_days(batch_only)
+    most_streams(batch_only)
     most_tags(zulip_df)

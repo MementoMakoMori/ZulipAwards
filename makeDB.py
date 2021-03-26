@@ -3,6 +3,12 @@ from pymongo import MongoClient
 import time
 from bson.json_util import dumps
 
+# currently this code gets member ids for people with the 'W1'20' string in their name
+# and then grabs messages sent by those people
+# instead, I want to grab messages within a time frame
+# which involves doing something weird with anchors I think
+
+
 def get_messages_from(sender, anchor='oldest', num_after=1000):
     """Get up to num_after messages from sender to public streams, starting with anchor."""
     return {
@@ -36,27 +42,10 @@ def bulk_get_messages_from(sender, first_anchor='oldest', batch_size=1000, limit
             anchor = max(m["id"] for m in messages) + 1
     return "OK"
 
-# def get_all_messages(human):
-#     request = {
-#         "anchor": "oldest",
-#         "num_before": 0,
-#         "num_after": 1000,
-#         "narrow": [{"operator": "sender", "operand": human},
-#                    {"operator": "streams", "operand": "public"},]
-#     }
-#     out = []
-#     while True:
-#         result = zl.get_messages(request)
-#         messages = result.get("messages", [])
-#         if messages:
-#             out.append(messages)
-#         if result.get("found_newest"):
-#             break
-#         if result.get("code") == "RATE_LIMIT_HIT":
-#             time.sleep(result.get("retry-after", 1) + 0.1)
-#     return list(it.chain(*out))
 
 # this function is for testing purposes
+
+
 def get_one_post(anchor="newest", before=1, after=0, client=zulip.Client(config_file="zuliprc.txt")):
     req = {
             "anchor": anchor,
@@ -71,14 +60,13 @@ def get_one_post(anchor="newest", before=1, after=0, client=zulip.Client(config_
     else:
         return result
 
+
 if __name__ == "__main__":
     zl = zulip.Client(config_file="zuliprc.txt")
     mclient = MongoClient()
     db = mclient["rc_mldp"]
-    # no_bots = list(filter(lambda x: x['is_bot']==False, zl.get_members()['members']))
-    W1_batch = list(filter(lambda x: "W1'20" in x['full_name'], zl.get_members()['members']))
-    ids = list(map(lambda x: x['user_id'], W1_batch))
-
+    no_bots = list(filter(lambda x: x['is_bot'] is False, zl.get_members()['members']))
+    ids = list(map(lambda x: x['user_id'], no_bots))
     for id in ids:
         bulk_get_messages_from(id)
     with open("messages.json", "w") as fl:
@@ -96,4 +84,4 @@ if __name__ == "__main__":
             else:
                 fl.write(',')
         fl.write(']')
-
+        fl.close()
