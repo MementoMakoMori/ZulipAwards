@@ -13,8 +13,9 @@ this script requires a running Mongo server (mongod daemon on unix)
 """
 
 
+# chunks of the mongo code were originally written by Donny Winston
+# (although I have changed them quite a bit by this point)
 def get_messages_from(sender, anchor='oldest', num_after=1000):
-    """Get up to num_after messages from sender to public streams, starting with anchor."""
     return {
         "anchor": anchor,
         "num_before": 0,
@@ -47,6 +48,7 @@ def bulk_get_messages_from(sender, first_anchor='oldest', chunk_size=1000, limit
     return "OK"
 
 
+# turn batch names from calendar into Zulip's abbreviated versions
 def parse_batch(name):
     split = str.split(name)
     if len(split) == 2:
@@ -70,6 +72,7 @@ def parse_batch(name):
     return new
 
 
+# format info from RC Calendar
 def collect_dates(batches):
     batches['tag'] = parse_batch(batches['name'])
     batches['start_date'] = dt.datetime.timestamp(dt.datetime.strptime(batches['start_date'], "%Y-%m-%d"))
@@ -78,10 +81,15 @@ def collect_dates(batches):
     return batches
 
 
+# don't include batches that are on the calendar but have not started yet
+# or batches that happened before RC used Zulip (?)
 def remove_future(batches):
     earliest = db.messages.find({}, {'timestamp': 1}).sort('timestamp', pymongo.ASCENDING)[0]['timestamp']
     if batches['start_date'] < earliest:
         return False
+    if batches['start_date'] > dt.datetime.timestamp(dt.datetime.now()):
+        return False
+    # I removed this part that ignores batches that have started but not completed
     # if batches['end_date'] > dt.datetime.timestamp(dt.datetime.now()):
     #     return False
     else:
@@ -89,8 +97,7 @@ def remove_future(batches):
 
 
 if __name__ == "__main__":
-    # import os
-    # zl = zulip.Client(config_file=os.getenv('Z_RC'))
+    # here is where you need to change code to connect to your Zulip credentials
     zl = zulip.Client(config_file="~/PycharmProjects/ZULIP_CONFIG")
     mclient = pymongo.MongoClient()
     db = mclient["all_rc"]
@@ -105,11 +112,9 @@ if __name__ == "__main__":
             bulk_get_messages_from(human)
     if 'timestamp_1' not in db.messages.index_information():
         db.messages.create_index([('timestamp', pymongo.DESCENDING)])
-    # grab batch dates from the RC calendar
-    # import os
-    # tok = os.getenv('TOKEN')
-    import keyring
-    tok = keyring.get_password('summon', 'RC_API_TOKEN')
+    # grab batch dates from the RC calendar, requires RC API token
+    import os
+    tok = os.getenv('TOK')
     batch_info = requests.get(url=f"https://www.recurse.com/api/v1/batches?access_token={tok}")
     form_info = list(map(collect_dates, batch_info.json()))
     form_info = list(filter(remove_future, form_info))

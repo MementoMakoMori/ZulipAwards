@@ -1,0 +1,6 @@
+setuptools~=52.0.0
+zulip~=0.7.1
+pymongo~=3.11.3
+pandas~=1.2.3
+nltk~=3.5
+requests~=2.25.1

@@ -5,6 +5,7 @@ from bson.json_util import dumps
 from functools import reduce
 
 
+# this function removes bots from the collected messages; limits streams only to RC
 def message_filter(message_list):
     global bot_ids
     bots = list(filter(lambda x: x['sender_id'] in bot_ids, message_list))
@@ -18,6 +19,7 @@ def message_filter(message_list):
     return message_list
 
 
+# retrieve messages by batch timeframe and enter them into a MongoDB
 def mongo_batch_only(start_anchor, end_anchor, chunk_size=500, limit=None):
     total = 0
     anchor = start_anchor
@@ -53,6 +55,7 @@ def mongo_batch_only(start_anchor, end_anchor, chunk_size=500, limit=None):
     return "OK"
 
 
+# create SQLite table to insert messages into
 def sql_create():
     sql_command = '''CREATE TABLE messages
     (id int not null,
@@ -78,6 +81,7 @@ def sql_create():
     return sql_command
 
 
+# retrieve messages by batch timeframe and enter them into SQLite table
 def sql_batch_only(start_anchor, end_anchor, chunk_size=500, limit=None):
     total = 0
     anchor = start_anchor
@@ -114,6 +118,7 @@ def sql_batch_only(start_anchor, end_anchor, chunk_size=500, limit=None):
     return "OK"
 
 
+# check input to use Mongo or SQL
 def choose_checker(text):
     if text.isalpha():
         if len(text) == 1:
@@ -122,6 +127,8 @@ def choose_checker(text):
     return False
 
 
+# SQL table cannot handle different # of fields, so remove last_edit_timestamp
+# which only appears on messages that were edited
 def clean_for_sql(message: dict):
     if 'last_edit_timestamp' in message.keys():
         del message['last_edit_timestamp']
@@ -131,6 +138,7 @@ def clean_for_sql(message: dict):
     return list(message.values())
 
 
+# helper to get bot_ids for removal
 def reduce_bots(acc, nxt):
     acc.append(nxt['user_id'])
     return acc
@@ -138,9 +146,8 @@ def reduce_bots(acc, nxt):
 
 if __name__ == "__main__":
     # here is where you need to change code to connect to your Zulip credentials
-    # import os
-    # zl = zulip.Client(config_file=os.getenv('Z_RC'))
-    # zl = zulip.Client(config_file="~/PycharmProjects/ZULIP_CONFIG")
+    zl = zulip.Client(config_file="INSERT FILE PATH HERE")
+    # if you want to make your own anchors.json file, run getAnchors.py
     anchors = json.load(open("anchors.json", "r"))
     batch = input("Which batch are you selecting?\nPlease use the format InitialNumber'Yr, like this: SP1'18\n")
     while batch not in anchors.keys():
@@ -149,6 +156,7 @@ if __name__ == "__main__":
     batch_end = anchors[batch]['last']
     batch_members = list(filter(lambda x: batch in x['full_name'], zl.get_members()['members']))
     bot_members = list(filter(lambda x: x['is_bot'] is True, zl.get_members()['members']))
+    # members.json is a list of people in batch & will be used by redCarpet.py
     with open("members.json", "w") as fl:
         fl.write(json.dumps(batch_members))
         fl.close()
@@ -156,6 +164,7 @@ if __name__ == "__main__":
     choose = input("Are you using Mongo for your data? (recommended)\ny/[n]")
     if choose_checker(choose):
         import pymongo
+
         mclient = pymongo.MongoClient()
         db = mclient[batch]
         mongo_batch_only(start_anchor=batch_start, end_anchor=batch_end)
@@ -177,6 +186,7 @@ if __name__ == "__main__":
             fl.close()
     else:
         import sqlite3
+
         db = sqlite3.connect("messages.db")
         c = db.cursor()
         c.execute(sql_create())
